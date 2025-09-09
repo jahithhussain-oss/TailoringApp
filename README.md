@@ -1,6 +1,6 @@
-#TailoringApp
+# TailoringApp
 
-##Open Tailoring App to manage tailoring store orders
+## Open Tailoring App to manage tailoring store orders
 
 Table of Contents
 
@@ -74,16 +74,16 @@ Running the App
 
 Launch on your preferred platform:
 
-# Run on mobile (e.g., connected Android device)
+## Run on mobile (e.g., connected Android device)
 flutter run
 
-# Run on web
+## Run on web
 flutter run -d chrome
 
-# Run on desktop
+## Run on desktop
 flutter run -d windows  # or macos/linux
 
-# Build Android mobile app
+## Build Android mobile app
 flutter build apk --release
 
 Usage
