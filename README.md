@@ -24,7 +24,7 @@ Data persistence with SQLlight and Sync to Google Sheet
 
 
 ### Getting Started
-Prerequisites
+#### Prerequisites
 
 Make sure you have the following installed:
 
@@ -50,7 +50,7 @@ flutter run
 ### Run on web
 flutter run -d chrome
 
-###Run on desktop
+### Run on desktop
 flutter run -d windows  # or macos/linux
 
 ### Build Android mobile app
@@ -61,7 +61,9 @@ Usage
 (Here you can describe how to navigate the app, add orders, view details, etc. Screenshots or step-by-step instructions are excellent here.)
 
 Project Structure
+
 TailoringApp/
+
 ├── android/            # Android-specific files
 
 ├── ios/                # iOS-specific files
