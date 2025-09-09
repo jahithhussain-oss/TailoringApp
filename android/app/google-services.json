@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "899976306993",
+    "project_id": "tailoringstorage",
+    "storage_bucket": "tailoringstorage.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:899976306993:android:7be2f879a959bd87a35010",
+        "android_client_info": {
+          "package_name": "com.example.tailoringapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDsOdNVfdUcVT50BELtBpfGaTClY1G7_o0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:899976306993:android:840efe53d4129337a35010",
+        "android_client_info": {
+          "package_name": "com.stylishladies.tailoring"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDsOdNVfdUcVT50BELtBpfGaTClY1G7_o0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
