@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/db_service.dart';
 
 class ItemTypesScreen extends StatefulWidget {
-  const ItemTypesScreen({Key? key}) : super(key: key);
+  const ItemTypesScreen({super.key});
 
   @override
   State<ItemTypesScreen> createState() => _ItemTypesScreenState();

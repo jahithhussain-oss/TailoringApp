@@ -2,9 +2,6 @@
 // UI for user login using Firebase Auth.
 
 import 'package:flutter/material.dart';
-import '../../services/auth_service.dart';
-import '../register/register_screen.dart';
-import '../dashboard/dashboard_screen.dart';
 import 'sign_in_screen.dart';
 import 'sign_up_screen.dart';
 

@@ -55,15 +55,91 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _initSheetsService() async {
     try {
-      // TODO: Replace with your actual spreadsheet ID
+      // Use absolute path to credentials file (will fallback to assets on mobile)
+      final credentialsPath = 'assets/Google_Sheet_tailor.json';
       _sheetsService = GoogleSheetsService(
-        'Google_Sheet_tailor.json',
-        'your_spreadsheet_id', // Replace this with your actual Google Sheets ID
+        credentialsPath,
+        '1F5eBqi23l7O1PohWzeolFZOgOrsZ9wLBBfT9OvqMaWs', // Replace this with your actual Google Sheets ID
       );
       await _sheetsService!.init();
+      print('Google Sheets service initialized successfully');
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Google Sheets connected successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
       print('Failed to initialize Google Sheets service: $e');
-      // Don't set _sheetsService to null, let the sync button show the error
+      // Show detailed error to user with specific guidance
+      if (mounted) {
+        String errorMessage;
+        String title = 'Google Sheets Setup Error';
+
+        if (e.toString().contains('Credentials file not found') ||
+            e.toString().contains('Assets not loaded properly')) {
+          title = 'Credentials Not Found';
+          errorMessage =
+              'Google Sheets credentials not found!\n\n'
+              'SOLUTION:\n'
+              '1. Run: flutter clean\n'
+              '2. Run: flutter pub get\n'
+              '3. Rebuild APK: flutter build apk --debug\n'
+              '4. Reinstall APK: flutter install\n\n'
+              'This ensures assets are included in the APK.';
+        } else if (e.toString().contains('Failed to access spreadsheet')) {
+          title = 'Spreadsheet Access Denied';
+          errorMessage =
+              'Cannot access Google Spreadsheet!\n\n'
+              'SOLUTION:\n'
+              '1. Share your Google Sheet with:\n'
+              '   tailoringdata@nth-bucksaw-369914.iam.gserviceaccount.com\n'
+              '2. Give "Editor" permissions\n'
+              '3. Check spreadsheet ID is correct\n'
+              '4. Ensure internet connection';
+        } else if (e.toString().contains('Authentication failed')) {
+          title = 'Authentication Failed';
+          errorMessage =
+              'Google Sheets authentication failed!\n\n'
+              'SOLUTION:\n'
+              '1. Check Google Sheets API is enabled\n'
+              '2. Verify service account credentials\n'
+              '3. Check internet connectivity\n'
+              '4. Try again in a few minutes';
+        } else {
+          title = 'Google Sheets Error';
+          errorMessage =
+              'Google Sheets setup failed: $e\n\n'
+              'Check console logs for detailed error information.';
+        }
+
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(title),
+            content: SingleChildScrollView(child: Text(errorMessage)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _initSheetsService();
+                },
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        );
+      }
+      _sheetsService = null;
     }
   }
 
@@ -161,22 +237,58 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       setState(() => _syncing = false);
 
-      if (result['error'] != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sync failed: ${result['error']}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
+      // Show detailed results
+      final successCount = result.entries.where((e) => e.value == 'ok').length;
+      final errorCount = result.entries.where((e) => e.value == 'error').length;
+      final summary = result['summary'] ?? 'Sync completed';
+
+      if (errorCount > 0) {
+        // Show error details dialog
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Sync Results'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Summary: $summary'),
+                  const SizedBox(height: 16),
+                  Text('Successful: $successCount tables'),
+                  Text('Failed: $errorCount tables'),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Details:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  ...result.entries
+                      .where((e) => e.key != 'summary')
+                      .map(
+                        (e) => Text(
+                          '${e.key}: ${e.value}',
+                          style: TextStyle(
+                            color: e.value == 'ok' ? Colors.green : Colors.red,
+                          ),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
       } else {
-        final successCount = result.entries
-            .where((e) => e.value == 'ok')
-            .length;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Sync successful! Synced $successCount tables.'),
+            content: Text('Sync successful! $summary'),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
           ),
         );
       }

@@ -15,13 +15,8 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
   List<Map<String, dynamic>> _measurements = [];
   List<Map<String, dynamic>> _filteredMeasurements = [];
   List<Map<String, dynamic>> _customers = [];
-  List<Map<String, dynamic>> _itemTypes = [];
   bool _loading = true;
   final TextEditingController _searchController = TextEditingController();
-
-  // Selected values for dropdowns
-  int? _selectedCustomerId;
-  int? _selectedItemTypeId;
 
   // Controllers for measurement fields
   final TextEditingController _lengthController = TextEditingController();
@@ -42,7 +37,6 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
   void initState() {
     super.initState();
     _loadMeasurements();
-    _loadItemTypes();
     _searchController.addListener(_onSearchChanged);
   }
 
@@ -77,38 +71,6 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
     });
   }
 
-  Future<void> _loadItemTypes() async {
-    final itemTypes = await DBService.getAllItemTypes();
-
-    // If no item types exist, add some default ones
-    if (itemTypes.isEmpty) {
-      await _addDefaultItemTypes();
-      final updatedItemTypes = await DBService.getAllItemTypes();
-      setState(() {
-        _itemTypes = updatedItemTypes;
-      });
-    } else {
-      setState(() {
-        _itemTypes = itemTypes;
-      });
-    }
-  }
-
-  Future<void> _addDefaultItemTypes() async {
-    final defaultTypes = [
-      {'type': 'Shirt', 'shortName': 'SH', 'description': 'Men\'s Shirt'},
-      {'type': 'Pant', 'shortName': 'PT', 'description': 'Men\'s Pant'},
-      {'type': 'Suit', 'shortName': 'ST', 'description': 'Men\'s Suit'},
-      {'type': 'Blouse', 'shortName': 'BL', 'description': 'Women\'s Blouse'},
-      {'type': 'Dress', 'shortName': 'DR', 'description': 'Women\'s Dress'},
-      {'type': 'Skirt', 'shortName': 'SK', 'description': 'Women\'s Skirt'},
-    ];
-
-    for (final type in defaultTypes) {
-      await DBService.insertItemType(type);
-    }
-  }
-
   void _onSearchChanged() {
     final query = _searchController.text.toLowerCase();
     setState(() {
@@ -130,18 +92,8 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
     return customer['name'] ?? '';
   }
 
-  String _getItemTypeName(int itemTypeId) {
-    final itemType = _itemTypes.firstWhere(
-      (t) => t['id'] == itemTypeId,
-      orElse: () => {'type': ''},
-    );
-    return itemType['type'] ?? '';
-  }
-
   Future<void> _addOrEditMeasurement({int? id}) async {
     final customerId = _selectedCustomerId;
-    final itemTypeId = _selectedItemTypeId;
-
     if (customerId == null) {
       ScaffoldMessenger.of(
         context,
@@ -149,16 +101,8 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
       return;
     }
 
-    if (itemTypeId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select an item type')),
-      );
-      return;
-    }
-
     final data = {
       'customerId': customerId,
-      'itemTypeId': itemTypeId,
       'length': _lengthController.text.trim(),
       'shoulder': _shoulderController.text.trim(),
       'slLoose': _slLooseController.text.trim(),
@@ -173,7 +117,6 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
       'bottomWaist': _bottomWaistController.text.trim(),
       'bottom': _bottomController.text.trim(),
       'createdAt': DateTime.now().toIso8601String(),
-      'lastModified': DateTime.now().toIso8601String(),
     };
 
     try {
@@ -195,7 +138,6 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
   void _showAddOrEditMeasurementDialog({Map<String, dynamic>? measurement}) {
     if (measurement != null) {
       _selectedCustomerId = measurement['customerId'];
-      _selectedItemTypeId = measurement['itemTypeId'];
       _lengthController.text = measurement['length'] ?? '';
       _shoulderController.text = measurement['shoulder'] ?? '';
       _slLooseController.text = measurement['slLoose'] ?? '';
@@ -244,25 +186,6 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
                     .toList(),
                 onChanged: (v) => setState(() => _selectedCustomerId = v),
                 decoration: _inputDecoration('Customer *'),
-                style: const TextStyle(color: Colors.black),
-                validator: (v) => v == null ? 'Required' : null,
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<int>(
-                value: _selectedItemTypeId,
-                items: _itemTypes
-                    .map(
-                      (t) => DropdownMenuItem(
-                        value: t['id'] as int,
-                        child: Text(
-                          t['type'],
-                          style: const TextStyle(color: Colors.black),
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedItemTypeId = v),
-                decoration: _inputDecoration('Item Type *'),
                 style: const TextStyle(color: Colors.black),
                 validator: (v) => v == null ? 'Required' : null,
               ),
@@ -360,7 +283,6 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
 
   void _clearControllers() {
     _selectedCustomerId = null;
-    _selectedItemTypeId = null;
     _lengthController.clear();
     _shoulderController.clear();
     _slLooseController.clear();
@@ -375,6 +297,8 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
     _bottomWaistController.clear();
     _bottomController.clear();
   }
+
+  int? _selectedCustomerId;
 
   @override
   Widget build(BuildContext context) {
@@ -447,13 +371,6 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
                                 subtitle: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      'Type: ${_getItemTypeName(measurement['itemTypeId'] ?? 1)}',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w500,
-                                        color: Colors.white70,
-                                      ),
-                                    ),
                                     if ((measurement['length'] ?? '')
                                         .isNotEmpty)
                                       Text(

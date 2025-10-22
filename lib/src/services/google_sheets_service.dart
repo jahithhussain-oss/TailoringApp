@@ -2,6 +2,7 @@
 // Service for handling data operations with Google Sheets API.
 
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:gsheets/gsheets.dart';
 import 'package:tailoringapp/src/models/customer.dart';
 import 'package:tailoringapp/src/services/db_service.dart';
@@ -19,17 +20,58 @@ class GoogleSheetsService {
 
   Future<void> init() async {
     try {
-      final credentials = File(_credentialsPath).readAsStringSync();
+      print('Initializing Google Sheets service...');
+      print('Credentials path: $_credentialsPath');
+      print('Spreadsheet ID: $_spreadsheetId');
+
+      String credentials;
+
+      // Try to load from assets first (for mobile)
+      try {
+        credentials = await rootBundle.loadString(
+          'assets/Google_Sheet_tailor.json',
+        );
+        print('✅ Credentials loaded from assets successfully');
+      } catch (e) {
+        // Fallback to file system (for desktop/debug)
+        print('⚠️ Failed to load from assets: $e');
+        print('Trying file system fallback...');
+
+        final credentialsFile = File(_credentialsPath);
+        if (!credentialsFile.existsSync()) {
+          throw Exception(
+            'Google Sheets credentials not found!\n\n'
+            'Mobile/APK: Assets not loaded properly. Run:\n'
+            '  flutter clean\n'
+            '  flutter pub get\n'
+            '  flutter build apk\n\n'
+            'Desktop/Debug: File not found at $_credentialsPath\n\n'
+            'Make sure Google_Sheet_tailor.json exists in assets folder.',
+          );
+        }
+        credentials = credentialsFile.readAsStringSync();
+        print('✅ Credentials file loaded from file system successfully');
+      }
+
       _gsheets = GSheets(credentials);
+      print('GSheets instance created');
+
       _spreadsheet = await _gsheets.spreadsheet(_spreadsheetId);
+      print('Spreadsheet accessed: $_spreadsheetId');
 
       if (_spreadsheet == null) {
         throw Exception(
-          'Failed to access spreadsheet. Check if spreadsheet ID is correct and service account has access.',
+          'Failed to access spreadsheet $_spreadsheetId. Check if:\n'
+          '1. Spreadsheet ID is correct\n'
+          '2. Service account has access to the spreadsheet\n'
+          '3. Service account email is shared with the spreadsheet',
         );
       }
 
       print('Google Sheets service initialized successfully');
+      print(
+        'Available worksheets: ${_spreadsheet!.sheets.map((s) => s.title).toList()}',
+      );
     } catch (e) {
       print('Failed to initialize Google Sheets service: $e');
       rethrow;
@@ -38,6 +80,53 @@ class GoogleSheetsService {
 
   Worksheet? getWorksheetByTitle(String title) {
     return _spreadsheet?.worksheetByTitle(title);
+  }
+
+  /// Ensure a worksheet exists with proper headers
+  Future<void> _ensureWorksheetExists(
+    String title,
+    List<String> headers,
+  ) async {
+    if (_spreadsheet == null) {
+      throw Exception('Spreadsheet not initialized');
+    }
+
+    Worksheet? worksheet = getWorksheetByTitle(title);
+
+    if (worksheet == null) {
+      print('Creating worksheet: $title');
+      worksheet = await _spreadsheet!.addWorksheet(title);
+    }
+
+    // Check if headers exist
+    try {
+      final firstRow = await worksheet.values.row(1);
+      if (firstRow.isEmpty) {
+        print('Adding headers to worksheet: $title');
+        await worksheet.values.insertRow(1, headers);
+      } else {
+        // Verify headers match
+        final existingHeaders = firstRow
+            .map((cell) => cell.toString())
+            .toList();
+        if (existingHeaders.length != headers.length ||
+            !existingHeaders.every((h) => headers.contains(h))) {
+          print(
+            'Headers mismatch for $title. Expected: $headers, Found: $existingHeaders',
+          );
+          // You might want to update headers or handle this differently
+        }
+      }
+    } catch (e) {
+      print('Error checking/creating headers for $title: $e');
+      // Try to add headers anyway
+      try {
+        await worksheet.values.insertRow(1, headers);
+      } catch (e2) {
+        print('Failed to add headers to $title: $e2');
+        rethrow;
+      }
+    }
   }
 
   /// Test method to verify Google Sheets connection and worksheets
@@ -71,7 +160,7 @@ class GoogleSheetsService {
           // Try to read first row to check headers
           try {
             final firstRow = await worksheet.values.row(1);
-            result['${sheetName}_headers'] = firstRow?.length ?? 0;
+            result['${sheetName}_headers'] = firstRow.length;
           } catch (e) {
             result['${sheetName}_headers'] = 'Error reading headers: $e';
           }
@@ -198,12 +287,31 @@ class GoogleSheetsService {
     required Future<List<Map<String, dynamic>>> Function()
     getLocalChanges, // returns rows to sync
   }) async {
-    final localRows = await getLocalChanges();
-    // Convert Map<String, dynamic> to List<String> for each row
-    final rows = localRows
-        .map((row) => headers.map((h) => row[h]?.toString() ?? '').toList())
-        .toList();
-    await bulkUpsertRowsById(worksheetTitle, headers, rows);
+    try {
+      print('Syncing $worksheetTitle from SQLite to Sheets...');
+
+      // Ensure worksheet exists
+      await _ensureWorksheetExists(worksheetTitle, headers);
+
+      final localRows = await getLocalChanges();
+      print('Found ${localRows.length} rows to sync for $worksheetTitle');
+
+      if (localRows.isEmpty) {
+        print('No rows to sync for $worksheetTitle');
+        return;
+      }
+
+      // Convert Map<String, dynamic> to List<String> for each row
+      final rows = localRows
+          .map((row) => headers.map((h) => row[h]?.toString() ?? '').toList())
+          .toList();
+
+      await bulkUpsertRowsById(worksheetTitle, headers, rows);
+      print('Successfully synced ${rows.length} rows to $worksheetTitle');
+    } catch (e) {
+      print('Error syncing $worksheetTitle to Sheets: $e');
+      rethrow;
+    }
   }
 
   /// Sync all tables (customers, orders, order_details, measurements, shops) both ways.
@@ -216,85 +324,135 @@ class GoogleSheetsService {
     final results = <String, String>{};
     final errors = <String, String>{};
 
+    print('Starting sync process...');
+    print('Current time: $now');
+
+    // Helper function to sync a table with error handling
+    Future<void> syncTable(
+      String tableName,
+      Future<void> Function() syncFunction,
+    ) async {
+      try {
+        print('Syncing $tableName...');
+        await syncFunction();
+        results[tableName] = 'ok';
+        print('$tableName synced successfully');
+      } catch (e) {
+        final errorMsg = 'Error syncing $tableName: $e';
+        print(errorMsg);
+        errors[tableName] = errorMsg;
+        results[tableName] = 'error';
+      }
+    }
+
     try {
       // Customers
-      final lastCustomerSync = await getLastSyncTime('customers');
-      await syncCustomersFromSheetsToSQLite(
-        getLastSyncTime: () async => lastCustomerSync,
-      );
-      await syncCustomersFromSQLiteToSheets(
-        getLocalChanges: () async =>
-            await DBService.getCustomersChangedSince(lastCustomerSync),
-      );
-      await setLastSyncTime('customers', now);
-      results['customers'] = 'ok';
+      await syncTable('customers', () async {
+        final lastCustomerSync = await getLastSyncTime('customers');
+        print('Last customer sync: $lastCustomerSync');
+
+        await syncCustomersFromSheetsToSQLite(
+          getLastSyncTime: () async => lastCustomerSync,
+        );
+        await syncCustomersFromSQLiteToSheets(
+          getLocalChanges: () async =>
+              await DBService.getCustomersChangedSince(lastCustomerSync),
+        );
+        await setLastSyncTime('customers', now);
+      });
+
       // Orders
-      final lastOrderSync = await getLastSyncTime('orders');
-      await syncOrdersFromSheetsToSQLite(
-        getLastSyncTime: () async => lastOrderSync,
-      );
-      await syncOrdersFromSQLiteToSheets(
-        getLocalChanges: () async =>
-            await DBService.getOrdersChangedSince(lastOrderSync),
-      );
-      await setLastSyncTime('orders', now);
-      results['orders'] = 'ok';
+      await syncTable('orders', () async {
+        final lastOrderSync = await getLastSyncTime('orders');
+        print('Last order sync: $lastOrderSync');
+
+        await syncOrdersFromSheetsToSQLite(
+          getLastSyncTime: () async => lastOrderSync,
+        );
+        await syncOrdersFromSQLiteToSheets(
+          getLocalChanges: () async =>
+              await DBService.getOrdersChangedSince(lastOrderSync),
+        );
+        await setLastSyncTime('orders', now);
+      });
+
       // OrderDetails
-      final lastOrderDetailSync = await getLastSyncTime('order_details');
-      await syncOrderDetailsFromSheetsToSQLite(
-        getLastSyncTime: () async => lastOrderDetailSync,
-      );
-      await syncOrderDetailsFromSQLiteToSheets(
-        getLocalChanges: () async =>
-            await DBService.getOrderDetailsChangedSince(lastOrderDetailSync),
-      );
-      await setLastSyncTime('order_details', now);
-      results['order_details'] = 'ok';
+      await syncTable('order_details', () async {
+        final lastOrderDetailSync = await getLastSyncTime('order_details');
+        print('Last order detail sync: $lastOrderDetailSync');
+
+        await syncOrderDetailsFromSheetsToSQLite(
+          getLastSyncTime: () async => lastOrderDetailSync,
+        );
+        await syncOrderDetailsFromSQLiteToSheets(
+          getLocalChanges: () async =>
+              await DBService.getOrderDetailsChangedSince(lastOrderDetailSync),
+        );
+        await setLastSyncTime('order_details', now);
+      });
+
       // Measurements
-      final lastMeasurementSync = await getLastSyncTime('measurements');
-      await syncMeasurementsFromSheetsToSQLite(
-        getLastSyncTime: () async => lastMeasurementSync,
-      );
-      await syncMeasurementsFromSQLiteToSheets(
-        getLocalChanges: () async =>
-            await DBService.getMeasurementsChangedSince(lastMeasurementSync),
-      );
-      await setLastSyncTime('measurements', now);
-      results['measurements'] = 'ok';
+      await syncTable('measurements', () async {
+        final lastMeasurementSync = await getLastSyncTime('measurements');
+        print('Last measurement sync: $lastMeasurementSync');
+
+        await syncMeasurementsFromSheetsToSQLite(
+          getLastSyncTime: () async => lastMeasurementSync,
+        );
+        await syncMeasurementsFromSQLiteToSheets(
+          getLocalChanges: () async =>
+              await DBService.getMeasurementsChangedSince(lastMeasurementSync),
+        );
+        await setLastSyncTime('measurements', now);
+      });
+
       // Shops
-      final lastShopSync = await getLastSyncTime('shops');
-      await syncShopsFromSheetsToSQLite(
-        getLastSyncTime: () async => lastShopSync,
-      );
-      await syncShopsFromSQLiteToSheets(
-        getLocalChanges: () async =>
-            await DBService.getShopsChangedSince(lastShopSync),
-      );
-      await setLastSyncTime('shops', now);
-      results['shops'] = 'ok';
+      await syncTable('shops', () async {
+        final lastShopSync = await getLastSyncTime('shops');
+        print('Last shop sync: $lastShopSync');
+
+        await syncShopsFromSheetsToSQLite(
+          getLastSyncTime: () async => lastShopSync,
+        );
+        await syncShopsFromSQLiteToSheets(
+          getLocalChanges: () async =>
+              await DBService.getShopsChangedSince(lastShopSync),
+        );
+        await setLastSyncTime('shops', now);
+      });
+
       // Item Types
-      final lastItemTypeSync = await getLastSyncTime('item_types');
-      await syncItemTypesFromSheetsToSQLite(
-        getLastSyncTime: () async => lastItemTypeSync,
-      );
-      await syncItemTypesFromSQLiteToSheets(
-        getLocalChanges: () async =>
-            await DBService.getItemTypesChangedSince(lastItemTypeSync),
-      );
-      await setLastSyncTime('item_types', now);
-      results['item_types'] = 'ok';
+      await syncTable('item_types', () async {
+        final lastItemTypeSync = await getLastSyncTime('item_types');
+        print('Last item type sync: $lastItemTypeSync');
+
+        await syncItemTypesFromSheetsToSQLite(
+          getLastSyncTime: () async => lastItemTypeSync,
+        );
+        await syncItemTypesFromSQLiteToSheets(
+          getLocalChanges: () async =>
+              await DBService.getItemTypesChangedSince(lastItemTypeSync),
+        );
+        await setLastSyncTime('item_types', now);
+      });
     } catch (e) {
-      print('Sync error: $e');
+      print('Critical sync error: $e');
       results['error'] = e.toString();
     }
 
     // Add summary information
-    if (results['error'] == null) {
-      results['summary'] = 'All tables synced successfully';
+    final successCount = results.entries.where((e) => e.value == 'ok').length;
+    final errorCount = results.entries.where((e) => e.value == 'error').length;
+
+    if (errorCount == 0) {
+      results['summary'] =
+          'All tables synced successfully ($successCount tables)';
     } else {
-      results['summary'] = 'Sync completed with errors';
+      results['summary'] =
+          'Sync completed with errors ($successCount success, $errorCount errors)';
     }
 
+    print('Sync completed: ${results['summary']}');
     return results;
   }
 
